@@ -264,29 +264,6 @@ app.post('/interactions', async function (req, res) {
 });    
 
 
-    // if (name === 'test') {
-    //   // Send a message into the channel where command was triggered from
-    //   return res.send({
-    //     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    //     data: {
-    //       content: 'click to join the simulation',
-    //       components: [{
-    //         type: 1,
-    //         components: [
-    //           {
-    //             type: 2,
-    //             label: 'Join',
-    //             style: 1,
-    //             custom_id: 'button1'
-    //           }
-    //         ]
-    //       }]
-    //     },
-    //   });
-    // }
-    
-    // "sim" command  
-
 app.listen(PORT, () => {
   console.log('Listening on port', PORT);
 });
