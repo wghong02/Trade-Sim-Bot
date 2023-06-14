@@ -285,8 +285,7 @@ app.post('/interactions', async function (req, res) {
     //   });
     // }
     
-    // "sim" command
-    
+    // "sim" command  
 
 app.listen(PORT, () => {
   console.log('Listening on port', PORT);
