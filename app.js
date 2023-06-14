@@ -10,6 +10,8 @@ import {
 import { VerifyDiscordRequest, getRandomEmoji, DiscordRequest } from './utils.js';
 import { getShuffledOptions, getResult } from './game.js';
 
+
+
 // Create an express app
 const app = express();
 // Get port, or default to 3000
@@ -43,16 +45,34 @@ app.post('/interactions', async function (req, res) {
 
     // "test" command
     if (name === 'test') {
-      // Send a message into the channel where command was triggered from
+      const userId = req.body.member.user.id;
+      const game = {
+        players: {},
+        stockPrice: 0,
+        waitingForPrice: true
+      };
+      activeGames[userId] = game;
+
       return res.send({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
         data: {
-          // Fetches a random emoji to send from a helper function
-          content: 'hello world ' + getRandomEmoji(),
+          content: 'Click to start the simulation.',
+          components: [{
+            type: MessageComponentTypes.ACTION_ROW,
+            components: [
+              {
+                type: 2,
+                label: 'Start Sim',
+                style: 1,
+                custom_id: 'start_sim'
+              }
+            ]
+          }]
         },
       });
     }
-    // "sim" command
+    
+    // sim command
     if (name === 'sim' && id) {
       const userId = req.body.member.user.id;
       // User's object choice
@@ -163,9 +183,111 @@ app.post('/interactions', async function (req, res) {
         }
       }
     }
-});
+  
+  if (type === InteractionType.MESSAGE_COMPONENT) {
+    // for sim
+    const componentId = data.custom_id;
+
+    if (componentId.startsWith('start_sim')) {
+      // get the associated game ID
+        const gameId = componentId.replace('start_sim', '');
+        // Delete message with token in request body
+        const endpoint = `webhooks/${process.env.APP_ID}/${req.body.token}/messages/${req.body.message.id}`;
+        try {
+          await res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: 'Do you want to buy or sell?',
+              // Indicates it'll be an ephemeral message
+              flags: InteractionResponseFlags.EPHEMERAL,
+              components: [
+                {
+                  type: MessageComponentTypes.ACTION_ROW,
+                  components: [
+                    {
+                      type: MessageComponentTypes.BUTTON,
+                      style: ButtonStyleTypes.PRIMARY,
+                      label: 'Buy',
+                      // Append game ID
+                      custom_id: `buy_${gameId}`,
+                    },
+                    {
+                      type: MessageComponentTypes.BUTTON,
+                      style: ButtonStyleTypes.DANGER,
+                      label: 'Sell',
+                      // Append game ID
+                      custom_id: `sell_${gameId}`,
+                    },
+                  ],
+                },
+              ],
+            },
+          });
+          // Delete previous message
+          await DiscordRequest(endpoint, { method: 'DELETE' });
+          // await DiscordRequest(endpoint, { method: 'DELETE' });
+        } catch (err) {
+          console.error('Error sending message:', err);
+        }
+    
+      const userId = req.body.member.user.id;
+      const game = activeGames[userId];
+      if (!game) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: 'No active simulation found.',
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      }
+      
+      game.waitingForPrice = true;
+
+      return res.send({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: 'Simulation started. Please enter the stock price.',
+          components: [
+            // buy and sell
+            {
+                type: 2,
+                label: 'Join',
+                style: 1,
+                custom_id: 'button1'
+              }
+          ],
+        },
+      });
+    }
+  }
+});    
+
+
+    // if (name === 'test') {
+    //   // Send a message into the channel where command was triggered from
+    //   return res.send({
+    //     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    //     data: {
+    //       content: 'click to join the simulation',
+    //       components: [{
+    //         type: 1,
+    //         components: [
+    //           {
+    //             type: 2,
+    //             label: 'Join',
+    //             style: 1,
+    //             custom_id: 'button1'
+    //           }
+    //         ]
+    //       }]
+    //     },
+    //   });
+    // }
+    
+    // "sim" command
+    
 
 app.listen(PORT, () => {
   console.log('Listening on port', PORT);
 });
-
