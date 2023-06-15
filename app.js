@@ -8,7 +8,7 @@ import {
   ButtonStyleTypes,
 } from 'discord-interactions';
 import { VerifyDiscordRequest, getRandomEmoji, DiscordRequest } from './utils.js';
-import { getShuffledOptions, getResult } from './game.js';
+// import { getShuffledOptions, getResult } from './game.js';
 
 
 
@@ -38,18 +38,11 @@ app.post('/interactions', async function (req, res) {
   
  // handle commands
   if (type === InteractionType.APPLICATION_COMMAND) {
-    const { name } = data;
+    const { name, options } = data;
 
     // "test" command
     if (name === 'test') {
       const userId = req.body.member.user.id;
-
-      const game = {
-        players: {},
-        stockPrice: 0,
-        waitingForPrice: true
-      };
-      activeGames[userId] = game;
 
       return res.send({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -70,6 +63,33 @@ app.post('/interactions', async function (req, res) {
         },
       });
     }
+    if (name === 'setprice') {
+      const userId = req.body.member.user.id;
+      const priceOption = options.find(option => option.name === 'price');
+      if (priceOption) {
+        const price = parseFloat(priceOption.value);
+        if (!isNaN(price)) {
+          activeGames[userId].stockPrice = price;
+          activeGames[userId].waitingForPrice = false;
+
+          // Send a response indicating the price has been updated.
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `Stock price set to ${price}.`,
+            },
+          });
+        } else {
+          // Invalid price entered.
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: 'Invalid stock price. Please enter a valid number.',
+            },
+          });
+        }
+      }
+    }
   }
   
   if (type === InteractionType.MESSAGE_COMPONENT) {
@@ -85,31 +105,15 @@ app.post('/interactions', async function (req, res) {
       // Start a new game
       const game = {
         players: {},
-        stockPrice: 0,
-        waitingForPrice: true
+        stockPrice: 0
       };
       activeGames[userId] = game;
 
       return res.send({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
         data: {
-          content: 'Simulation started. Please enter the current price.',
+          content: 'Simulation started. Please use the /setprice command to set the current price.',
           flags: InteractionResponseFlags.EPHEMERAL,
-          components: [
-          {
-            "type": 1,
-            "components": [{
-              "type": 4,
-              "custom_id": "current_price",
-              "label": "current_price",
-              "style": 1,
-              "min_length": 1,
-              "max_length": 4000,
-              "placeholder": "-100",
-              "required": true
-            }]
-          }
-        ]
         },
       });
       
