@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import { getRPSChoices } from './game.js';
 import { capitalize, InstallGlobalCommands } from './utils.js';
 
 // Get the game choices from game.js
@@ -24,22 +23,27 @@ const TEST_COMMAND = {
   type: 1,
 };
 
-// Command containing options
-const SIM_COMMAND = {
-  name: 'sim',
-  description: 'Begin the Simulation',
+// Command
+const SETPRICE_COMMAND = {
+  name: 'setprice',
+  description: 'Set the current price',
   options: [
     {
-      type: 3,
-      name: 'object',
-      description: 'Pick your object',
-      required: true,
-      choices: createCommandChoices(),
+      type: 10,
+      name: 'price',
+      description: 'Price to set',
+      required: true
     },
   ],
-  type: 1,
+  type: 1, // CHAT_INPUT or slash command
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, SIM_COMMAND];
+const LEADERBOARD_COMMAND = {
+  name: 'leaderboard',
+  description: 'View the leaderboard',
+  type: 1, // CHAT_INPUT or slash command
+};
+
+const ALL_COMMANDS = [TEST_COMMAND, SETPRICE_COMMAND, LEADERBOARD_COMMAND];
 
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);
