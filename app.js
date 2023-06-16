@@ -68,7 +68,27 @@ app.post('/interactions', async function (req, res) {
       const priceOption = options.find(option => option.name === 'price');
       if (priceOption) {
         const price = parseFloat(priceOption.value);
-        if (!isNaN(price)) {
+        if (price === -100){
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: 'Simulation is over. Click to view the leaderboard',
+              flags: InteractionResponseFlags.EPHEMERAL,
+              components: [{
+                type: MessageComponentTypes.ACTION_ROW,
+                components: [
+                  {
+                    type: 2,
+                    label: 'View Leaderboard',
+                    style: 1,
+                    custom_id: 'leaderboard'
+                  }
+                ]
+              }]
+            },
+          });
+        }
+        if (!isNaN(price) || price < 0) {
           activeGames[userId].stockPrice = price;
           activeGames[userId].waitingForPrice = false;
 
@@ -133,53 +153,6 @@ app.post('/interactions', async function (req, res) {
           content: `${userId} sold a position`,
         },
       });
-    }
-  }
-  if (type === InteractionType.MODAL_SUBMIT) {
-    const { custom_id, values } = data;
-    const userId = req.body.member.user.id;
-    
-    if (custom_id === 'current_price') {
-      const priceInput = values.find(value => value.custom_id === 'current_price');
-      const price = parseFloat(priceInput.value);
-      if (!isNaN(price)) {
-        activeGames[userId].stockPrice = price;
-        activeGames[userId].waitingForPrice = false;
-
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: `Stock price set to ${price}. Do you want to buy or sell?`,
-            components: [
-              {
-                type: MessageComponentTypes.ACTION_ROW,
-                components: [
-                  {
-                    type: MessageComponentTypes.BUTTON,
-                    style: ButtonStyleTypes.PRIMARY,
-                    label: 'Buy',
-                    custom_id: `buy_${userId}`,
-                  },
-                  {
-                    type: MessageComponentTypes.BUTTON,
-                    style: ButtonStyleTypes.DANGER,
-                    label: 'Sell',
-                    custom_id: `sell_${userId}`,
-                  },
-                ],
-              },
-            ],
-          },
-        });
-      } else {
-        // Invalid price entered
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: 'Invalid stock price. Please enter a valid number.',
-          },
-        });
-      }
     }
   }
 });    
