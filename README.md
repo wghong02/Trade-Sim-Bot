@@ -49,6 +49,8 @@ The simulation command. Use "/sim" in the channel to use the bot to start a simu
 
 Note that if you start a new simulation when the old one is not finished, the old one will be deleted. 
 
+Typically the session would preserve as
+
 #### setprice
 
 Use this command to set the price of the stock each turn. Everytime a number is put in, the bot would send a message in the channel to ask the players if they want to "Buy" or "Sell" their positions. If the player does not wish to do anything to their position, simply ignore the buttons.
