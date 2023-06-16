@@ -73,7 +73,6 @@ app.post('/interactions', async function (req, res) {
             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
             data: {
               content: 'Simulation is over. Click to view the leaderboard',
-              flags: InteractionResponseFlags.EPHEMERAL,
               components: [{
                 type: MessageComponentTypes.ACTION_ROW,
                 components: [
@@ -153,9 +152,18 @@ app.post('/interactions', async function (req, res) {
           content: `${userId} sold a position`,
         },
       });
+    } else if (componentId.startsWith('leaderboard')) {
+      // User clicked "Sell" button
+      return res.send({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: `${userId} is viewing the leaderboard`,
+        },
+      });
     }
   }
 });    
+
 
 app.listen(PORT, () => {
   console.log('Listening on port', PORT);
