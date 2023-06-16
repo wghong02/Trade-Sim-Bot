@@ -49,7 +49,7 @@ The simulation command. Use "/sim" in the channel to use the bot to start a simu
 
 Note that if you start a new simulation when the old one is not finished, the old one will be deleted. 
 
-Typically the session would preserve as
+The session will be deleted if inactive for too long. Typically the session would preserve as long as the inactive time is less than 10 minutes.
 
 #### setprice
 
