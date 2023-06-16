@@ -67,6 +67,16 @@ app.post("/interactions", async function (req, res) {
     }
     if (name === "setprice") {
       const userId = req.body.member.user.id;
+      
+        if (!activeGames[userId]) {
+    // There's no active game for this user
+          return res.send({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: "There is currently no active simulation. Use /sim to start a new simulation.",
+            },
+          });
+        }
       const username = req.body.member.user.username;
       const discriminator = req.body.member.user.discriminator;
       const displayName = `${username}#${discriminator}`;
@@ -108,7 +118,7 @@ app.post("/interactions", async function (req, res) {
           return res.send({
             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
             data: {
-              content: `Stock price set to ${price}. Do you want to buy or sell?`,
+              content: `The current price is ${price}. Do you want to buy or sell?`,
               components: [
                 {
                   type: MessageComponentTypes.ACTION_ROW,
@@ -134,14 +144,27 @@ app.post("/interactions", async function (req, res) {
       }
     }
     if (name === "leaderboard") {
+      // leaderboard command
       const userId = req.body.member.user.id;
-      const message = viewLeaderboard(activeGames[userId]);
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: message,
-        },
-      });
+      if (!activeGames[userId]) {
+        // There's no active game for this user
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content:
+              "There is currently no active simulation. Use /sim to start a new simulation.",
+          },
+        });
+      } else {
+        // There's an active game, so generate and send the leaderboard
+        const message = viewLeaderboard(activeGames[userId]);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: message,
+          },
+        });
+      }
     }
   }
 
@@ -288,13 +311,25 @@ app.post("/interactions", async function (req, res) {
       }
     } else if (componentId.startsWith("leaderboard")) {
       // User clicked "Sell" button
-      const message = viewLeaderboard(activeGames[userId]);
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: message,
-        },
-      });
+      if (!activeGames[userId]) {
+        // There's no active game for this user
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content:
+              "There is currently no active simulation. Use /sim to start a new simulation.",
+          },
+        });
+      } else {
+        // There's an active game, so generate and send the leaderboard
+        const message = viewLeaderboard(activeGames[userId]);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: message,
+          },
+        });
+      }
     }
   }
 });
