@@ -122,6 +122,7 @@ app.post("/interactions", async function (req, res) {
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
               data: {
                 content: "Invalid stock price. Please enter a valid number.",
+                flags: InteractionResponseFlags.EPHEMERAL,
               },
             });
           } else {
@@ -169,6 +170,7 @@ app.post("/interactions", async function (req, res) {
           data: {
             content:
               "There is currently no active simulation. Use /sim to start a new simulation.",
+            flags: InteractionResponseFlags.EPHEMERAL,
           },
         });
       } else {
