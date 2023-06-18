@@ -76,6 +76,7 @@ app.post("/interactions", async function (req, res) {
           data: {
             content:
               "There is currently no active simulation. Use /sim to start a new simulation.",
+            flags: InteractionResponseFlags.EPHEMERAL,
           },
         });
       } else if (activeGames[channelId].ownerId !== userId) {
@@ -85,6 +86,7 @@ app.post("/interactions", async function (req, res) {
           data: {
             content:
               "Only the user who started the simulation can set the price.",
+            flags: InteractionResponseFlags.EPHEMERAL,
           },
         });
       } else {
@@ -334,6 +336,7 @@ app.post("/interactions", async function (req, res) {
           data: {
             content:
               "There is currently no active simulation. Use /sim to start a new simulation.",
+            flags: InteractionResponseFlags.EPHEMERAL,
           },
         });
       } else {
