@@ -29,6 +29,12 @@ const LEADERBOARD_COMMAND = {
   type: 1, // CHAT_INPUT or slash command
 };
 
-const ALL_COMMANDS = [SIM_COMMAND, SETPRICE_COMMAND, LEADERBOARD_COMMAND];
+const CURRENT_POSITIONS_COMMAND = {
+  name: "current_positions",
+  description: "View the current positions",
+  type: 1, // CHAT_INPUT or slash command
+};
+
+const ALL_COMMANDS = [SIM_COMMAND, SETPRICE_COMMAND, LEADERBOARD_COMMAND, CURRENT_POSITIONS_COMMAND];
 
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);
