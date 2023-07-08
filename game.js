@@ -25,3 +25,27 @@ export function viewLeaderboard(game) {
 
   return leaderboard;
 }
+
+
+export function viewPositions(game) {
+  // Get an array of the players
+    // Start composing the message
+  let message = '```\n Current open positions:\n';
+
+  // For each player in the game
+  for (const [playerName, playerData] of Object.entries(game.players)) {
+    // If the player has an open position
+    if (playerData.position) {
+      // Add a line to the message for this player
+      message += `${playerName}: ${playerData.position} position at ${playerData.enterPrice} \n`;
+    }
+  }
+
+  // If no players have an open position
+  if (message === 'Current open positions:\n') {
+    message += 'No players have an open position.\n';
+  }
+  message += "```"
+
+  return message;
+}
