@@ -12,7 +12,7 @@ import {
   getRandomEmoji,
   DiscordRequest,
 } from "./utils.js";
-import { viewLeaderboard } from "./game.js";
+import { viewLeaderboard, viewPositions } from "./game.js";
 
 // Create an express app
 const app = express();
@@ -129,27 +129,48 @@ app.post("/interactions", async function (req, res) {
             activeGames[channelId].stockPrice = price;
 
             // Send a response indicating the price has been updated.
+            const components = [
+              {
+                type: 2,
+                style: 3,
+                label: "Buy",
+                custom_id: `buy_share`,
+              },
+              {
+                type: 2,
+                style: 4,
+                label: "Sell",
+                custom_id: `sell_share`,
+              },
+              {
+                type: 2,
+                style: 1,
+                label: "Close",
+                custom_id: `close`,
+              },
+              {
+                type: 2,
+                style: 1,
+                label: "Reverse",
+                custom_id: `reverse`,
+              },
+              {
+                type: 2,
+                style: 1,
+                label: "x2",
+                custom_id: `double`,
+              },
+            ];
+
+            // Send response
             return res.send({
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
               data: {
-                content: `The current price is ${price}. Do you want to buy or sell?`,
+                content: `The current price is ${price}. What do you want to do?`,
                 components: [
                   {
                     type: MessageComponentTypes.ACTION_ROW,
-                    components: [
-                      {
-                        type: 2,
-                        style: 3,
-                        label: "Buy",
-                        custom_id: `buy_share`,
-                      },
-                      {
-                        type: 2,
-                        style: 4,
-                        label: "Sell",
-                        custom_id: `sell_share`,
-                      },
-                    ],
+                    components: components,
                   },
                 ],
               },
@@ -158,6 +179,9 @@ app.post("/interactions", async function (req, res) {
         }
       }
     }
+    
+    
+    
     if (name === "leaderboard") {
       // leaderboard command
       const userId = req.body.member.user.id;
@@ -184,7 +208,34 @@ app.post("/interactions", async function (req, res) {
         });
       }
     }
+    if (name === "current_positions") {
+      // User use "current positions" command
+      const userId = req.body.member.user.id;
+      const channelId = req.body.channel_id;
+      if (!activeGames[channelId]) {
+        // There's no active game for this channel
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content:
+              "There is currently no active simulation. Use /sim to start a new simulation.",
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      } else {
+        // There's an active game, so generate and send the leaderboard
+        const message = viewPositions(activeGames[channelId]);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: message,
+          },
+        });  
+      }
+    }
   }
+  
+
 
   if (type === InteractionType.MESSAGE_COMPONENT) {
     const componentId = data.custom_id;
@@ -220,6 +271,7 @@ app.post("/interactions", async function (req, res) {
           position: "long",
           enterPrice: activeGames[channelId].stockPrice,
           profit: 0,
+          double: 2,
         };
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -228,33 +280,12 @@ app.post("/interactions", async function (req, res) {
             flags: InteractionResponseFlags.EPHEMERAL,
           },
         });
-      } else if (
-        activeGames[channelId].players[displayName]?.position === "short"
-      ) {
-        const profit =
-          activeGames[channelId].players[displayName].enterPrice -
-          activeGames[channelId].stockPrice;
-        activeGames[channelId].players[displayName].profit += profit;
-        activeGames[channelId].players[displayName].position = null;
-        activeGames[channelId].players[displayName].enterPrice =
-          activeGames[channelId].stockPrice;
-
-        const form_profit = profit.toFixed(2);
+      } else if (activeGames[channelId].players[displayName]?.position) {
+        // Player already has a position
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: `You covered your short position for a profit of ${form_profit}.`,
-            flags: InteractionResponseFlags.EPHEMERAL,
-          },
-        });
-      } else if (
-        activeGames[channelId].players[displayName]?.position === "long"
-      ) {
-        // Player already has a long position
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: `You already have a long position open.`,
+            content: `You already have a position open. Please close it before opening a new one.`,
             flags: InteractionResponseFlags.EPHEMERAL,
           },
         });
@@ -262,6 +293,7 @@ app.post("/interactions", async function (req, res) {
         activeGames[channelId].players[displayName].position = "long";
         activeGames[channelId].players[displayName].enterPrice =
           activeGames[channelId].stockPrice;
+        // Player has no position
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
@@ -279,6 +311,7 @@ app.post("/interactions", async function (req, res) {
           position: "short",
           enterPrice: activeGames[channelId].stockPrice,
           profit: 0,
+          double: 2,
         };
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -287,33 +320,12 @@ app.post("/interactions", async function (req, res) {
             flags: InteractionResponseFlags.EPHEMERAL,
           },
         });
-      } else if (
-        activeGames[channelId].players[displayName]?.position === "long"
-      ) {
-        const profit =
-          activeGames[channelId].stockPrice -
-          activeGames[channelId].players[displayName].enterPrice;
-        activeGames[channelId].players[displayName].profit += profit;
-        activeGames[channelId].players[displayName].position = null;
-        activeGames[channelId].players[displayName].enterPrice =
-          activeGames[channelId].stockPrice;
-
-        const form_profit = profit.toFixed(2);
+      } else if (activeGames[channelId].players[displayName]?.position) {
+        // Player already has a position
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: `You sold your long position for a profit of ${form_profit}.`,
-            flags: InteractionResponseFlags.EPHEMERAL,
-          },
-        });
-      } else if (
-        activeGames[channelId].players[displayName]?.position === "short"
-      ) {
-        // Player already has a short position
-        return res.send({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: `You already have a short position open.`,
+            content: `You already have a position open. Please close it before opening a new one.`,
             flags: InteractionResponseFlags.EPHEMERAL,
           },
         });
@@ -321,6 +333,7 @@ app.post("/interactions", async function (req, res) {
         activeGames[channelId].players[displayName].position = "short";
         activeGames[channelId].players[displayName].enterPrice =
           activeGames[channelId].stockPrice;
+        // Player has no position
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
@@ -329,8 +342,154 @@ app.post("/interactions", async function (req, res) {
           },
         });
       }
+    } else if (componentId.startsWith("close")) {
+      // User clicked "Close" button
+      if (!activeGames[channelId].players[displayName] || !activeGames[channelId].players[displayName]?.position) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `You do not currently have a position. Cannot close.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      } else {
+        let profit;
+        if (activeGames[channelId].players[displayName].position === "long") {
+          profit = activeGames[channelId].stockPrice - activeGames[channelId].players[displayName].enterPrice;
+        } else {
+          profit = activeGames[channelId].players[displayName].enterPrice - activeGames[channelId].stockPrice;
+        }
+
+        if (activeGames[channelId].players[displayName].double == 1) {
+          profit *= 2;
+        }
+
+        activeGames[channelId].players[displayName].profit += profit;
+        activeGames[channelId].players[displayName].position = null;
+        activeGames[channelId].players[displayName].enterPrice = null;
+
+        const form_profit = profit.toFixed(2);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `You closed your position for a profit of ${form_profit}.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      }
+    } else if (componentId.startsWith("reverse")) {
+      // User clicked "Reverse" button
+      // Give error message if they aren't already in the game
+      if (!activeGames[channelId].players[displayName]) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `You do not currently have a position. Cannot reverse.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      } else if (
+        // Plyaer already has a short position
+        activeGames[channelId].players[displayName]?.position === "short"
+      ) {
+        let profit =
+          activeGames[channelId].players[displayName].enterPrice -
+          activeGames[channelId].stockPrice;
+
+        if (activeGames[channelId].players[displayName].double == 1) {
+          activeGames[channelId].players[displayName].double = 0;
+          profit *= 2;
+        }
+
+        activeGames[channelId].players[displayName].profit += profit;
+        activeGames[channelId].players[displayName].position = "long";
+        activeGames[channelId].players[displayName].enterPrice =
+          activeGames[channelId].stockPrice;
+
+        const form_profit = profit.toFixed(2);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `You reversed your short position for a long position. The profit from your previous short position is ${form_profit}.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      } else if (
+        activeGames[channelId].players[displayName]?.position === "long"
+      ) {
+        let profit =
+          activeGames[channelId].stockPrice -
+          activeGames[channelId].players[displayName].enterPrice;
+
+        if (activeGames[channelId].players[displayName].double == 1) {
+          activeGames[channelId].players[displayName].double = 0;
+          profit *= 2;
+        }
+
+        activeGames[channelId].players[displayName].profit += profit;
+        activeGames[channelId].players[displayName].position = "short";
+        activeGames[channelId].players[displayName].enterPrice =
+          activeGames[channelId].stockPrice;
+
+        const form_profit = profit.toFixed(2);
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `You reversed your long position for a short position. The profit from your previous long position is ${form_profit}.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      } else {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `You do not currently have a position. Cannot reverse.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      }
+    } else if (componentId.startsWith("double")) {
+      // User clicked "double" button
+      // Give error message if they aren't already in the game
+      if (!activeGames[channelId].players[displayName] || !activeGames[channelId].players[displayName]?.position) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `You do not currently have a position. Cannot double.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      } else if (activeGames[channelId].players[displayName]?.double == 0) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `You already used your double.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      } else if (activeGames[channelId].players[displayName]?.double == 1) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `You are in a double position already.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      } else {
+        // User has a position and double is enabled
+        activeGames[channelId].players[displayName].enterPrice = 
+          (activeGames[channelId].players[displayName].enterPrice+activeGames[channelId].stockPrice)/2;
+        activeGames[channelId].players[displayName].double = 1;
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `You have doubled your ${activeGames[channelId].players[displayName]?.position} position at an average price of ${activeGames[channelId].players[displayName]?.enterPrice}.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      }
     } else if (componentId.startsWith("leaderboard")) {
-      // User clicked "Sell" button
+      // User clicked "leaderboard" button
       if (!activeGames[channelId]) {
         // There's no active game for this user
         return res.send({
