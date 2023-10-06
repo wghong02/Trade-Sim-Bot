@@ -12,7 +12,16 @@ import {
   getRandomEmoji,
   DiscordRequest,
 } from "./utils.js";
-import { viewLeaderboard, viewPositions } from "./game.js";
+import { viewLeaderboard, viewPositions, viewRules } from "./game.js";
+
+import { Client, GatewayIntentBits } from 'discord.js';
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+
+client.login(process.env.DISCORD_TOKEN);
+
+client.on('ready', () => {
+  console.log(`Logged in as ${client.user.tag}!`);
+});
 
 // Create an express app
 const app = express();
@@ -20,6 +29,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 // Parse request body and verifies incoming requests using discord-interactions package
 app.use(express.json({ verify: VerifyDiscordRequest(process.env.PUBLIC_KEY) }));
+
+app.get("/", (req, res) => {
+  res.send("The Trade Sim Bot is live!");
+});
 
 // Store for in-progress games. In production, you'd want to use a DB
 const activeGames = {};
@@ -65,6 +78,68 @@ app.post("/interactions", async function (req, res) {
         },
       });
     }
+    if (name === "rules") {
+      const message = viewRules();
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: message,
+          },
+        });
+    }
+    if (name === "settick") {
+      const userId = req.body.member.user.id;
+      const channelId = req.body.channel_id;
+
+      if (!activeGames[channelId]) {
+        // There's no active game for this channel
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content:
+              "There is currently no active simulation. Use /sim to start a new simulation.",
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      } else if (activeGames[channelId].ownerId !== userId) {
+        // The user trying to set the price is not the owner of the game
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content:
+              "Only the user who started the simulation can set the tick value.",
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      } else {
+        const username = req.body.member.user.username;
+        const discriminator = req.body.member.user.discriminator;
+        const displayName = `${username}#${discriminator}`;
+
+        const tickOption = options.find((option) => option.name === "tick");
+        if (tickOption) {
+          const tick = parseFloat(tickOption.value);
+          if (isNaN(tick) || tick < 0) {
+            return res.send({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: {
+                content: "Invalid tick value. Please enter a valid number.",
+                flags: InteractionResponseFlags.EPHEMERAL,
+              },
+            });
+          } else {
+            activeGames[channelId].tick_val = tick;
+            return res.send({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: {
+                content: `1 tick is set to be ${tick}.`,
+                flags: InteractionResponseFlags.EPHEMERAL,
+              },
+            });
+          }
+        }
+      }
+    }
     if (name === "setprice") {
       const userId = req.body.member.user.id;
       const channelId = req.body.channel_id;
@@ -98,23 +173,35 @@ app.post("/interactions", async function (req, res) {
         if (priceOption) {
           const price = parseFloat(priceOption.value);
           if (price === -100) {
+            
+            for (const displayName in activeGames[channelId].players) {
+              const player = activeGames[channelId].players[displayName];
+              const tick = activeGames[channelId].tick_val
+
+              let profit;
+              if (activeGames[channelId].players[displayName].position === "long") {
+                profit =
+                  activeGames[channelId].stockPrice -
+                  activeGames[channelId].players[displayName].enterPrice;
+              } else {
+                profit =
+                  activeGames[channelId].players[displayName].enterPrice -
+                  activeGames[channelId].stockPrice;
+              }
+
+              if (activeGames[channelId].players[displayName].double == 1) {
+                activeGames[channelId].players[displayName].double = 0;
+                profit *= 2;
+                    }
+              profit = profit/tick;
+              activeGames[channelId].players[displayName].profit += profit;
+              activeGames[channelId].players[displayName].position = null;
+              activeGames[channelId].players[displayName].enterPrice = null;      
+            }
             return res.send({
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
               data: {
-                content: "Simulation is over. Click to view the leaderboard ",
-                components: [
-                  {
-                    type: MessageComponentTypes.ACTION_ROW,
-                    components: [
-                      {
-                        type: 2,
-                        label: "View Leaderboard",
-                        style: 1,
-                        custom_id: "leaderboard",
-                      },
-                    ],
-                  },
-                ],
+                content: "Simulation is over.",
               },
             });
           } else if (isNaN(price) || price < 0) {
@@ -131,57 +218,92 @@ app.post("/interactions", async function (req, res) {
             // Send a response indicating the price has been updated.
             const components = [
               {
-                type: 2,
-                style: 3,
-                label: "Buy",
-                custom_id: `buy_share`,
-              },
-              {
-                type: 2,
-                style: 4,
-                label: "Sell",
-                custom_id: `sell_share`,
-              },
-              {
-                type: 2,
-                style: 1,
-                label: "Close",
-                custom_id: `close`,
-              },
-              {
-                type: 2,
-                style: 1,
-                label: "Reverse",
-                custom_id: `reverse`,
-              },
-              {
-                type: 2,
-                style: 1,
-                label: "x2",
-                custom_id: `double`,
-              },
-            ];
-
-            // Send response
-            return res.send({
-              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-              data: {
-                content: `The current price is ${price}. What do you want to do?`,
+                type: MessageComponentTypes.ACTION_ROW,
                 components: [
                   {
-                    type: MessageComponentTypes.ACTION_ROW,
-                    components: components,
+                    type: 2,
+                    style: 3,
+                    label: "Buy",
+                    custom_id: `buy_share`,
+                  },
+                  {
+                    type: 2,
+                    style: 4,
+                    label: "Sell",
+                    custom_id: `sell_share`,
+                  },
+                  {
+                    type: 2,
+                    style: 1,
+                    label: "Close",
+                    custom_id: `close`,
+                  },
+                  {
+                    type: 2,
+                    style: 1,
+                    label: "Reverse",
+                    custom_id: `reverse`,
+                  },
+                  {
+                    type: 2,
+                    style: 1,
+                    label: "x2",
+                    custom_id: `double`,
                   },
                 ],
               },
+              {
+                type: MessageComponentTypes.ACTION_ROW,
+                components: [
+                  {
+                    type: 2,
+                    style: 1,
+                    label: "Trim",
+                    custom_id: `trim`,
+                  },
+                ],
+              },
+            ];
+            
+            const channel = await client.channels.fetch(channelId);
+            
+            const message = await channel.send({
+                content: `The current price is ${price}. What do you want to do?`,
+                components: components,
+            })
+            
+            setTimeout(() => {
+              message.edit({
+                components: [], // Set components to an empty array to remove buttons
+              }).catch(console.error); // Log errors to console
+            }, 15000);
+            
+            return res.send({
+              type: 4,
+              data: {
+                content: 'Loading...',
+                flags: InteractionResponseFlags.EPHEMERAL,
+              },
             });
+
+            // Send response
+            // return res.send({
+            //   type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            //   data: {
+            //     content: `The current price is ${price}. What do you want to do?`,
+            //     components: [
+            //       {
+            //         type: MessageComponentTypes.ACTION_ROW,
+            //         components: components,
+            //       },
+            //     ],
+            //   },
+            // });
           }
         }
       }
     }
-    
-    
-    
+
     if (name === "leaderboard") {
       // leaderboard command
       const userId = req.body.member.user.id;
@@ -230,12 +352,10 @@ app.post("/interactions", async function (req, res) {
           data: {
             content: message,
           },
-        });  
+        });
       }
     }
   }
-  
-
 
   if (type === InteractionType.MESSAGE_COMPONENT) {
     const componentId = data.custom_id;
@@ -251,6 +371,7 @@ app.post("/interactions", async function (req, res) {
         players: {},
         stockPrice: 0,
         ownerId: req.body.member.user.id,
+        tick_val: 1,
       };
       activeGames[channelId] = game;
 
@@ -272,6 +393,7 @@ app.post("/interactions", async function (req, res) {
           enterPrice: activeGames[channelId].stockPrice,
           profit: 0,
           double: 2,
+          num_trades: 1,
         };
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -293,6 +415,7 @@ app.post("/interactions", async function (req, res) {
         activeGames[channelId].players[displayName].position = "long";
         activeGames[channelId].players[displayName].enterPrice =
           activeGames[channelId].stockPrice;
+        activeGames[channelId].players[displayName].num_trades += 1;
         // Player has no position
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -312,6 +435,7 @@ app.post("/interactions", async function (req, res) {
           enterPrice: activeGames[channelId].stockPrice,
           profit: 0,
           double: 2,
+          num_trades: 1,
         };
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -333,6 +457,7 @@ app.post("/interactions", async function (req, res) {
         activeGames[channelId].players[displayName].position = "short";
         activeGames[channelId].players[displayName].enterPrice =
           activeGames[channelId].stockPrice;
+        activeGames[channelId].players[displayName].num_trades += 1;
         // Player has no position
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -344,7 +469,10 @@ app.post("/interactions", async function (req, res) {
       }
     } else if (componentId.startsWith("close")) {
       // User clicked "Close" button
-      if (!activeGames[channelId].players[displayName] || !activeGames[channelId].players[displayName]?.position) {
+      if (
+        !activeGames[channelId].players[displayName] ||
+        !activeGames[channelId].players[displayName]?.position
+      ) {
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
@@ -353,17 +481,25 @@ app.post("/interactions", async function (req, res) {
           },
         });
       } else {
+        const tick = activeGames[channelId].tick_val
+        
         let profit;
         if (activeGames[channelId].players[displayName].position === "long") {
-          profit = activeGames[channelId].stockPrice - activeGames[channelId].players[displayName].enterPrice;
+          profit =
+            activeGames[channelId].stockPrice -
+            activeGames[channelId].players[displayName].enterPrice;
         } else {
-          profit = activeGames[channelId].players[displayName].enterPrice - activeGames[channelId].stockPrice;
+          profit =
+            activeGames[channelId].players[displayName].enterPrice -
+            activeGames[channelId].stockPrice;
         }
 
         if (activeGames[channelId].players[displayName].double == 1) {
+          activeGames[channelId].players[displayName].double = 0;
           profit *= 2;
         }
-
+        
+        profit = profit/tick;
         activeGames[channelId].players[displayName].profit += profit;
         activeGames[channelId].players[displayName].position = null;
         activeGames[channelId].players[displayName].enterPrice = null;
@@ -392,6 +528,7 @@ app.post("/interactions", async function (req, res) {
         // Plyaer already has a short position
         activeGames[channelId].players[displayName]?.position === "short"
       ) {
+        const tick = activeGames[channelId].tick_val
         let profit =
           activeGames[channelId].players[displayName].enterPrice -
           activeGames[channelId].stockPrice;
@@ -400,7 +537,8 @@ app.post("/interactions", async function (req, res) {
           activeGames[channelId].players[displayName].double = 0;
           profit *= 2;
         }
-
+        
+        profit = profit/tick;
         activeGames[channelId].players[displayName].profit += profit;
         activeGames[channelId].players[displayName].position = "long";
         activeGames[channelId].players[displayName].enterPrice =
@@ -417,6 +555,7 @@ app.post("/interactions", async function (req, res) {
       } else if (
         activeGames[channelId].players[displayName]?.position === "long"
       ) {
+        const tick = activeGames[channelId].tick_val
         let profit =
           activeGames[channelId].stockPrice -
           activeGames[channelId].players[displayName].enterPrice;
@@ -426,6 +565,7 @@ app.post("/interactions", async function (req, res) {
           profit *= 2;
         }
 
+        profit = profit/tick;
         activeGames[channelId].players[displayName].profit += profit;
         activeGames[channelId].players[displayName].position = "short";
         activeGames[channelId].players[displayName].enterPrice =
@@ -488,29 +628,79 @@ app.post("/interactions", async function (req, res) {
           },
         });
       }
-    } else if (componentId.startsWith("leaderboard")) {
-      // User clicked "leaderboard" button
-      if (!activeGames[channelId]) {
-        // There's no active game for this user
+    } else if (componentId.startsWith("trim")) {
+      // User clicked "Trim" button
+      if (
+        !activeGames[channelId].players[displayName] ||
+        !activeGames[channelId].players[displayName]?.position
+      ) {
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content:
-              "There is currently no active simulation. Use /sim to start a new simulation.",
+            content: `You do not currently have a position. Cannot trim.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        });
+      } else if (activeGames[channelId].players[displayName]?.double != 1) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `You are not currently in a double position. Cannot trim.`,
             flags: InteractionResponseFlags.EPHEMERAL,
           },
         });
       } else {
-        // There's an active game, so generate and send the leaderboard
-        const message = viewLeaderboard(activeGames[channelId]);
+        let profit;
+        const tick = activeGames[channelId].tick_val
+        if (activeGames[channelId].players[displayName].position === "long") {
+          profit =
+            activeGames[channelId].stockPrice -
+            activeGames[channelId].players[displayName].enterPrice;
+        } else {
+          profit =
+            activeGames[channelId].players[displayName].enterPrice -
+            activeGames[channelId].stockPrice;
+        }
+        
+        profit = profit/tick;
+        activeGames[channelId].players[displayName].profit += profit;
+        activeGames[channelId].players[displayName].double = 0;
+
+        const form_profit = profit.toFixed(2);
         return res.send({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: message,
+            content: `You trimed your double position for a profit of ${form_profit}.`,
+            flags: InteractionResponseFlags.EPHEMERAL,
           },
         });
       }
     }
+    
+    
+    //   else if (componentId.startsWith("leaderboard")) {
+    //   // User clicked "leaderboard" button
+    //   if (!activeGames[channelId]) {
+    //     // There's no active game for this user
+    //     return res.send({
+    //       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    //       data: {
+    //         content:
+    //           "There is currently no active simulation. Use /sim to start a new simulation.",
+    //         flags: InteractionResponseFlags.EPHEMERAL,
+    //       },
+    //     });
+    //   } else {
+    //     // There's an active game, so generate and send the leaderboard
+    //     const message = viewLeaderboard(activeGames[channelId]);
+    //     return res.send({
+    //       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    //       data: {
+    //         content: message,
+    //       },
+    //     });
+    //   }
+    // }
   }
 });
 
