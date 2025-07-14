@@ -29,8 +29,13 @@ client.on("ready", () => {
 const app = express();
 // Get port, or default to 3000
 const PORT = process.env.PORT || 3000;
+
 // Parse request body and verifies incoming requests using discord-interactions package
-app.use(express.json({ verify: VerifyDiscordRequest(process.env.PUBLIC_KEY) }));
+app.use(
+	express.json({
+		verify: VerifyDiscordRequest(process.env.PUBLIC_KEY),
+	})
+);
 
 app.get("/", (req, res) => {
 	res.send("The Trade Sim Bot is live!");
@@ -43,8 +48,6 @@ const activeGames = {};
  * Interactions endpoint URL where Discord will send HTTP requests
  */
 app.post("/interactions", async function (req, res) {
-	console.log("Received interaction:", req.body);
-
 	// Interaction type and data
 	const { type, id, data } = req.body;
 
@@ -52,7 +55,8 @@ app.post("/interactions", async function (req, res) {
 	 * Handle verification requests
 	 */
 	if (type === InteractionType.PING) {
-		return res.send({ type: InteractionResponseType.PONG });
+		console.log("Received ping interaction");
+		return res.json({ type: InteractionResponseType.PONG });
 	}
 
 	// handle commands
