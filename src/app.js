@@ -11,6 +11,7 @@ import {
 	viewRules,
 	calculateAllProfit,
 	processLiquidation,
+	generateLeaderboard,
 } from "./basic_functions.js";
 import { processInteraction } from "./major_functions.js";
 
@@ -269,6 +270,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				return;
 			} else {
 				const price = options.getNumber("price");
+
+				// Console log the current leaderboard before processing any logic
+				console.log("=== CURRENT LEADERBOARD BEFORE SETPRICE ===");
+				const currentLeaderboard = generateLeaderboard(
+					activeGames[channelId],
+					activeGames[channelId].pointVal
+				);
+				console.log("Leaderboard messages:", currentLeaderboard);
+				console.log(
+					"Current game state:",
+					JSON.stringify(activeGames[channelId], null, 2)
+				);
+				console.log("=== END LEADERBOARD LOG ===");
+
 				if (price === -100) {
 					for (const displayName in activeGames[channelId].players) {
 						const player = activeGames[channelId].players[displayName];
