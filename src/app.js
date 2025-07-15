@@ -1,12 +1,10 @@
 import "dotenv/config";
-import express from "express";
 import {
 	InteractionType,
 	InteractionResponseType,
 	InteractionResponseFlags,
 	MessageComponentTypes,
 } from "discord-interactions";
-import { VerifyDiscordRequest } from "./utils.js";
 import {
 	viewLeaderboard,
 	viewPositions,
@@ -16,8 +14,23 @@ import {
 } from "./basic_functions.js";
 import { processInteraction } from "./major_functions.js";
 
-import { Client, GatewayIntentBits } from "discord.js";
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+import {
+	Client,
+	GatewayIntentBits,
+	Partials,
+	REST,
+	Routes,
+	Events,
+} from "discord.js";
+
+const client = new Client({
+	intents: [
+		GatewayIntentBits.Guilds,
+		GatewayIntentBits.GuildMessages,
+		GatewayIntentBits.MessageContent,
+	],
+	partials: [Partials.Channel],
+});
 
 client.login(process.env.DISCORD_TOKEN);
 
@@ -25,777 +38,404 @@ client.on("ready", () => {
 	console.log(`Logged in as ${client.user.tag}!`);
 });
 
-// Create an express app
-const app = express();
-// Get port, or default to 3000
-const PORT = process.env.PORT || 3000;
-
-// Parse request body and verifies incoming requests using discord-interactions package
-app.use(
-	express.json({
-		verify: VerifyDiscordRequest(process.env.PUBLIC_KEY),
-	})
-);
-
-app.get("/", (req, res) => {
-	res.send("The Trade Sim Bot is live!");
-});
-
 // Store for in-progress games. In production, you'd want to use a DB
 const activeGames = {};
 
-/**
- * Interactions endpoint URL where Discord will send HTTP requests
- */
-app.post("/interactions", async function (req, res) {
-	// Interaction type and data
-	const { type, id, data } = req.body;
+// Register slash commands (if not already registered)
+const commands = [
+	{
+		name: "sim",
+		description: "Start a new simulation",
+	},
+	{
+		name: "rules",
+		description: "View the rules",
+	},
+	{
+		name: "close_all",
+		description: "Close all positions",
+	},
+	{
+		name: "set_value",
+		description: "Set the value for each point",
+		options: [
+			{
+				name: "set_value",
+				description: "Value for each point",
+				type: 10,
+				required: true,
+			},
+		],
+	},
+	{
+		name: "set_double",
+		description: "Set the number of doubles",
+		options: [
+			{
+				name: "set_double",
+				description: "Number of doubles",
+				type: 10,
+				required: true,
+			},
+		],
+	},
+	{
+		name: "setprice",
+		description: "Set the current price",
+		options: [
+			{
+				name: "price",
+				description: "Stock price (-100 to end sim)",
+				type: 10,
+				required: true,
+			},
+		],
+	},
+	{
+		name: "leaderboard",
+		description: "View the leaderboard",
+	},
+	{
+		name: "current_positions",
+		description: "View current positions",
+	},
+	{
+		name: "liquidation_threshold",
+		description: "Set the liquidation threshold",
+		options: [
+			{
+				name: "liquidation_threshold",
+				description: "Threshold value",
+				type: 10,
+				required: true,
+			},
+		],
+	},
+];
 
-	/**
-	 * Handle verification requests
-	 */
-	if (type === InteractionType.PING) {
-		console.log("Received ping interaction");
-		return res.json({ type: InteractionResponseType.PONG });
+// Register commands on startup
+client.once("ready", async () => {
+	const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+	try {
+		const appId = client.user.id;
+		const guilds = await client.guilds.fetch();
+		for (const [guildId] of guilds) {
+			await rest.put(Routes.applicationGuildCommands(appId, guildId), {
+				body: commands,
+			});
+		}
+		console.log("Slash commands registered.");
+	} catch (error) {
+		console.error("Failed to register slash commands:", error);
 	}
+});
 
-	// handle commands
-	if (type === InteractionType.APPLICATION_COMMAND) {
-		const { name, options } = data;
+client.on(Events.InteractionCreate, async (interaction) => {
+	if (!interaction.isChatInputCommand() && !interaction.isButton()) return;
 
-		// "sim" command
-		if (name === "sim") {
-			return res.send({
-				type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-				data: {
-					content: "Click to start the simulation.",
-					flags: InteractionResponseFlags.EPHEMERAL,
-					components: [
-						{
-							type: MessageComponentTypes.ACTION_ROW,
-							components: [
-								{
-									type: 2,
-									label: "Start Sim",
-									style: 1,
-									custom_id: "start_sim",
-								},
-							],
-						},
-					],
-				},
+	const channelId = interaction.channelId;
+	const userId = interaction.user.id;
+	const username = interaction.user.username;
+	const discriminator = interaction.user.discriminator;
+	const displayName = `${username}#${discriminator}`;
+
+	if (interaction.isChatInputCommand()) {
+		const { commandName, options } = interaction;
+
+		if (commandName === "sim") {
+			await interaction.reply({
+				content: "Click to start the simulation.",
+				components: [
+					{
+						type: MessageComponentTypes.ACTION_ROW,
+						components: [
+							{
+								type: 2,
+								label: "Start Sim",
+								style: 1,
+								custom_id: "start_sim",
+							},
+						],
+					},
+				],
+				ephemeral: true,
 			});
+			return;
 		}
-		if (name === "rules") {
+		if (commandName === "rules") {
 			const message = viewRules();
-			return res.send({
-				type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-				data: {
-					content: message,
-				},
-			});
+			await interaction.reply({ content: message });
+			return;
 		}
-		if (name === "close_all") {
-			const userId = req.body.member.user.id;
-			const channelId = req.body.channel_id;
-			const pointValue = activeGames[channelId].pointVal;
-
+		if (commandName === "close_all") {
+			if (!activeGames[channelId]) {
+				await interaction.reply({
+					content:
+						"There is currently no active simulation. Use /sim to start a new simulation.",
+					ephemeral: true,
+				});
+				return;
+			}
 			for (const displayName in activeGames[channelId].players) {
 				if (activeGames[channelId].players[displayName].position) {
 					calculateAllProfit(activeGames[channelId], displayName, true);
 				}
 			}
-			return res.send({
-				type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-				data: {
-					content: "All Current Positions are Closed.",
-				},
-			});
+			await interaction.reply({ content: "All Current Positions are Closed." });
+			return;
 		}
-		if (name === "set_value") {
-			const userId = req.body.member.user.id;
-			const channelId = req.body.channel_id;
-
+		if (commandName === "set_value") {
 			if (!activeGames[channelId]) {
-				// There's no active game for this channel
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content:
-							"There is currently no active simulation. Use /sim to start a new simulation.",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content:
+						"There is currently no active simulation. Use /sim to start a new simulation.",
+					ephemeral: true,
 				});
+				return;
 			} else if (activeGames[channelId].ownerId !== userId) {
-				// The user trying to set the price is not the owner of the game
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content:
-							"Only the user who started the simulation can set the point value.",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content:
+						"Only the user who started the simulation can set the point value.",
+					ephemeral: true,
 				});
+				return;
 			} else {
-				const username = req.body.member.user.username;
-				const discriminator = req.body.member.user.discriminator;
-				const displayName = `${username}#${discriminator}`;
-
-				const point_option = options.find(
-					(option) => option.name === "set_value"
-				);
-				if (point_option) {
-					const pointValue = parseFloat(point_option.value);
-					if (isNaN(pointValue) || pointValue < 0) {
-						return res.send({
-							type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-							data: {
-								content: "Invalid point value. Please enter a valid number.",
-								flags: InteractionResponseFlags.EPHEMERAL,
-							},
-						});
-					} else {
-						activeGames[channelId].pointVal = pointValue;
-						return res.send({
-							type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-							data: {
-								content: `1 point is set to be ${pointValue}.`,
-								flags: InteractionResponseFlags.EPHEMERAL,
-							},
-						});
-					}
+				const pointValue = options.getNumber("set_value");
+				if (isNaN(pointValue) || pointValue < 0) {
+					await interaction.reply({
+						content: "Invalid point value. Please enter a valid number.",
+						ephemeral: true,
+					});
+					return;
+				} else {
+					activeGames[channelId].pointVal = pointValue;
+					await interaction.reply({
+						content: `1 point is set to be ${pointValue}.
+`,
+						ephemeral: true,
+					});
+					return;
 				}
 			}
 		}
-
-		if (name === "set_double") {
-			const userId = req.body.member.user.id;
-			const channelId = req.body.channel_id;
-
+		if (commandName === "set_double") {
 			if (!activeGames[channelId]) {
-				// There's no active game for this channel
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content:
-							"There is currently no active simulation. Use /sim to start a new simulation.",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content:
+						"There is currently no active simulation. Use /sim to start a new simulation.",
+					ephemeral: true,
 				});
+				return;
 			} else if (activeGames[channelId].ownerId !== userId) {
-				// The user trying to set the price is not the owner of the game
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content:
-							"Only the user who started the simulation can set the number of doubles.",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content:
+						"Only the user who started the simulation can set the number of doubles.",
+					ephemeral: true,
 				});
+				return;
 			} else {
-				const username = req.body.member.user.username;
-				const discriminator = req.body.member.user.discriminator;
-				const displayName = `${username}#${discriminator}`;
-
-				const num_option = options.find(
-					(option) => option.name === "set_double"
-				);
-				if (num_option) {
-					const numDouble = parseFloat(num_option.value);
-					if (isNaN(numDouble) || numDouble < 0) {
-						return res.send({
-							type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-							data: {
-								content: "Invalid value. Please enter a valid number.",
-								flags: InteractionResponseFlags.EPHEMERAL,
-							},
-						});
-					} else {
-						activeGames[channelId].numDouble = numDouble;
-						return res.send({
-							type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-							data: {
-								content: `The number of doubles is ${numDouble}.`,
-								flags: InteractionResponseFlags.EPHEMERAL,
-							},
-						});
-					}
+				const numDouble = options.getNumber("set_double");
+				if (isNaN(numDouble) || numDouble < 0) {
+					await interaction.reply({
+						content: "Invalid value. Please enter a valid number.",
+						ephemeral: true,
+					});
+					return;
+				} else {
+					activeGames[channelId].numDouble = numDouble;
+					await interaction.reply({
+						content: `The number of doubles is ${numDouble}.
+`,
+						ephemeral: true,
+					});
+					return;
 				}
 			}
 		}
-
-		if (name === "setprice") {
-			const userId = req.body.member.user.id;
-			const channelId = req.body.channel_id;
-
+		if (commandName === "setprice") {
 			if (!activeGames[channelId]) {
-				// There's no active game for this channel
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content:
-							"There is currently no active simulation. Use /sim to start a new simulation.",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content:
+						"There is currently no active simulation. Use /sim to start a new simulation.",
+					ephemeral: true,
 				});
+				return;
 			} else if (activeGames[channelId].ownerId !== userId) {
-				// The user trying to set the price is not the owner of the game
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content:
-							"Only the user who started the simulation can set the price.",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content:
+						"Only the user who started the simulation can set the price.",
+					ephemeral: true,
 				});
+				return;
 			} else {
-				const username = req.body.member.user.username;
-				const discriminator = req.body.member.user.discriminator;
-				const displayName = `${username}#${discriminator}`;
-
-				const priceOption = options.find((option) => option.name === "price");
-				if (priceOption) {
-					const price = parseFloat(priceOption.value);
-					if (price === -100) {
-						for (const displayName in activeGames[channelId].players) {
-							const player = activeGames[channelId].players[displayName];
-							const pointValue = activeGames[channelId].pointVal;
-
-							calculateAllProfit(activeGames[channelId], displayName, true);
-						}
-						return res.send({
-							type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-							data: {
-								content: "Simulation is over.",
-							},
-						});
-					} else if (isNaN(price) || price < 0) {
-						return res.send({
-							type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-							data: {
-								content: "Invalid stock price. Please enter a valid number.",
-								flags: InteractionResponseFlags.EPHEMERAL,
-							},
-						});
-					} else {
-						activeGames[channelId].stockPrice = price;
-
-						const components = [
-							{
-								type: MessageComponentTypes.ACTION_ROW,
-								components: [
-									{
-										type: 2,
-										style: 3,
-										label: "Buy",
-										custom_id: `buy_share`,
-									},
-									{
-										type: 2,
-										style: 4,
-										label: "Sell",
-										custom_id: `sell_share`,
-									},
-									{
-										type: 2,
-										style: 1,
-										label: "Close",
-										custom_id: `close`,
-									},
-								],
-							},
-							{
-								type: MessageComponentTypes.ACTION_ROW,
-								components: [
-									{
-										type: 2,
-										style: 1,
-										label: "Reverse",
-										custom_id: `reverse`,
-									},
-									{
-										type: 2,
-										style: 1,
-										label: "x2",
-										custom_id: `double`,
-									},
-									{
-										type: 2,
-										style: 1,
-										label: "Trim",
-										custom_id: `trim`,
-									},
-								],
-							},
-						];
-
-						processLiquidation(activeGames[channelId]);
-
-						const channel = await client.channels.fetch(channelId);
-						await viewPositions(activeGames[channelId], channel);
-
-						const timeoutDuration = 15000; // 15 seconds
-						let remainingTime = timeoutDuration / 1000; // Convert to seconds
-
-						const message = await channel.send({
-							content: `The current price is ${price}. What do you want to do? You have ${remainingTime} seconds to respond.`,
-							components: components,
-						});
-
-						// Update the message every 3 seconds
-						const intervalId = setInterval(async () => {
-							remainingTime -= 2; // Subtract five seconds
-
-							// If no time is remaining, clear the interval, remove the buttons, and exit the function
-							if (remainingTime <= 0) {
-								clearInterval(intervalId);
-								message
-									.edit({
-										content: `The current price was ${price}. Time's up!`,
-										components: [], // Set components to an empty array to remove buttons
-									})
-									.catch(console.error); // Log errors to console
-								return;
-							}
-
-							// Edit the message to show the updated remaining time
-							await message
+				const price = options.getNumber("price");
+				if (price === -100) {
+					for (const displayName in activeGames[channelId].players) {
+						const player = activeGames[channelId].players[displayName];
+						const pointValue = activeGames[channelId].pointVal;
+						calculateAllProfit(activeGames[channelId], displayName, true);
+					}
+					await interaction.reply({ content: "Simulation is over." });
+					return;
+				} else if (isNaN(price) || price < 0) {
+					await interaction.reply({
+						content: "Invalid stock price. Please enter a valid number.",
+						ephemeral: true,
+					});
+					return;
+				} else {
+					activeGames[channelId].stockPrice = price;
+					processLiquidation(activeGames[channelId]);
+					const channel = await client.channels.fetch(channelId);
+					await viewPositions(activeGames[channelId], channel);
+					const timeoutDuration = 15000; // 15 seconds
+					let remainingTime = timeoutDuration / 1000; // Convert to seconds
+					const components = [
+						{
+							type: MessageComponentTypes.ACTION_ROW,
+							components: [
+								{ type: 2, style: 3, label: "Buy", custom_id: `buy_share` },
+								{ type: 2, style: 4, label: "Sell", custom_id: `sell_share` },
+								{ type: 2, style: 1, label: "Close", custom_id: `close` },
+							],
+						},
+						{
+							type: MessageComponentTypes.ACTION_ROW,
+							components: [
+								{ type: 2, style: 1, label: "Reverse", custom_id: `reverse` },
+								{ type: 2, style: 1, label: "x2", custom_id: `double` },
+								{ type: 2, style: 1, label: "Trim", custom_id: `trim` },
+							],
+						},
+					];
+					const message = await channel.send({
+						content: `The current price is ${price}. What do you want to do? You have ${remainingTime} seconds to respond.`,
+						components: components,
+					});
+					const intervalId = setInterval(async () => {
+						remainingTime -= 2;
+						if (remainingTime <= 0) {
+							clearInterval(intervalId);
+							message
 								.edit({
-									content: `The current price is ${price}. What do you want to do? You have ${remainingTime} seconds to respond.`,
+									content: `The current price was ${price}. Time's up!`,
+									components: [],
 								})
-								.catch(console.error); // Log errors to console
-						}, 2000); // Run every 2 seconds
-
-						return res.send({
-							type: 4,
-							data: {
-								content: "Loading...",
-								flags: InteractionResponseFlags.EPHEMERAL,
-							},
-						});
-					}
+								.catch(console.error);
+							return;
+						}
+						await message
+							.edit({
+								content: `The current price is ${price}. What do you want to do? You have ${remainingTime} seconds to respond.`,
+							})
+							.catch(console.error);
+					}, 2000);
+					await interaction.reply({ content: "Loading...", ephemeral: true });
+					return;
 				}
 			}
 		}
-
-		if (name === "leaderboard") {
-			// leaderboard command
-			const userId = req.body.member.user.id;
-			const channelId = req.body.channel_id;
-
+		if (commandName === "leaderboard") {
 			if (!activeGames[channelId]) {
-				// There's no active game for this channel
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content:
-							"There is currently no active simulation. Use /sim to start a new simulation.",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content:
+						"There is currently no active simulation. Use /sim to start a new simulation.",
+					ephemeral: true,
 				});
+				return;
 			} else {
 				let pointValue = activeGames[channelId].pointVal;
-				// There's an active game, so generate and send the leaderboard
-
 				const channel = await client.channels.fetch(channelId);
-				if (!channel) {
-					throw new Error("Channel not found");
-				}
-
 				await viewLeaderboard(activeGames[channelId], channel, pointValue);
-
-				// Acknowledge the interaction with a hidden response
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content: "Command Executed",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content: "Command Executed",
+					ephemeral: true,
 				});
+				return;
 			}
 		}
-		if (name === "current_positions") {
-			// User use "current positions" command
-			const userId = req.body.member.user.id;
-			const channelId = req.body.channel_id;
+		if (commandName === "current_positions") {
 			if (!activeGames[channelId]) {
-				// There's no active game for this channel
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content:
-							"There is currently no active simulation. Use /sim to start a new simulation.",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content:
+						"There is currently no active simulation. Use /sim to start a new simulation.",
+					ephemeral: true,
 				});
+				return;
 			} else {
-				// There's an active game, so generate and send the positions
 				const channel = await client.channels.fetch(channelId);
-				if (!channel) {
-					throw new Error("Channel not found");
-				}
-
 				await viewPositions(activeGames[channelId], channel);
-
-				// Acknowledge the interaction with a hidden response
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content: "Command Executed",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content: "Command Executed",
+					ephemeral: true,
 				});
+				return;
 			}
 		}
-		if (name === "liquidation_threshold") {
-			const userId = req.body.member.user.id;
-			const channelId = req.body.channel_id;
-
+		if (commandName === "liquidation_threshold") {
 			if (!activeGames[channelId]) {
-				// There's no active game for this channel
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content:
-							"There is currently no active simulation. Use /sim to start a new simulation.",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content:
+						"There is currently no active simulation. Use /sim to start a new simulation.",
+					ephemeral: true,
 				});
+				return;
 			} else if (activeGames[channelId].ownerId !== userId) {
-				// The user trying to set the price is not the owner of the game
-				return res.send({
-					type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-					data: {
-						content:
-							"Only the user who started the simulation can set the threshold value.",
-						flags: InteractionResponseFlags.EPHEMERAL,
-					},
+				await interaction.reply({
+					content:
+						"Only the user who started the simulation can set the threshold value.",
+					ephemeral: true,
 				});
+				return;
 			} else {
-				const username = req.body.member.user.username;
-				const discriminator = req.body.member.user.discriminator;
-				const displayName = `${username}#${discriminator}`;
-
-				const threshold = options.find(
-					(option) => option.name === "liquidation_threshold"
-				);
-				if (threshold) {
-					const thresholdValue = parseFloat(threshold.value);
-					if (isNaN(thresholdValue) || thresholdValue < 0) {
-						return res.send({
-							type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-							data: {
-								content:
-									"Invalid threshold value. Please enter a valid number.",
-								flags: InteractionResponseFlags.EPHEMERAL,
-							},
-						});
-					} else {
-						activeGames[channelId].liquidationThreshold = thresholdValue;
-						return res.send({
-							type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-							data: {
-								content: `The liquidation threshold is set to be ${thresholdValue}.`,
-								flags: InteractionResponseFlags.EPHEMERAL,
-							},
-						});
-					}
+				const thresholdValue = options.getNumber("liquidation_threshold");
+				if (isNaN(thresholdValue) || thresholdValue < 0) {
+					await interaction.reply({
+						content: "Invalid threshold value. Please enter a valid number.",
+						ephemeral: true,
+					});
+					return;
+				} else {
+					activeGames[channelId].liquidationThreshold = thresholdValue;
+					await interaction.reply({
+						content: `The liquidation threshold is set to be ${thresholdValue}.
+`,
+						ephemeral: true,
+					});
+					return;
 				}
 			}
 		}
 	}
 
-	if (type === InteractionType.MESSAGE_COMPONENT) {
-		const componentId = data.custom_id;
-		const channelId = req.body.channel_id;
-		const userId = req.body.member.user.id;
-		const username = req.body.member.user.username;
-		const discriminator = req.body.member.user.discriminator;
-		const displayName = `${username}#${discriminator}`;
-
+	if (interaction.isButton()) {
+		const componentId = interaction.customId;
 		if (componentId === "start_sim") {
-			// Start a new game
 			const game = {
 				players: {},
 				stockPrice: 0,
 				numDouble: 2,
-				ownerId: req.body.member.user.id,
+				ownerId: userId,
 				pointVal: 1,
 				liquidationThreshold: 2500,
 			};
 			activeGames[channelId] = game;
-
-			return res.send({
-				type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-				data: {
-					content:
-						"Simulation started. Please use the /setprice command to set the current price and use the /set_value command to set the value for each point.",
-					flags: InteractionResponseFlags.EPHEMERAL,
-				},
+			await interaction.reply({
+				content:
+					"Simulation started. Please use the /setprice command to set the current price and use the /set_value command to set the value for each point.",
+				ephemeral: true,
 			});
+			return;
 		} else {
-			processInteraction(componentId, activeGames, channelId, displayName, res);
+			// Delegate to processInteraction for other buttons
+			await processInteraction(
+				componentId,
+				activeGames,
+				channelId,
+				displayName,
+				interaction
+			);
+			return;
 		}
-		//     else if (componentId.startsWith("buy")) {
-		//       // User clicked "Buy" button
-		//       // Add the user to the game's players if they aren't already in there
-		//       if (!activeGames[channelId].players[displayName]) {
-		//         activeGames[channelId].players[displayName] = {
-		//           // Initialize properties
-		//           position: "long",
-		//           enterPrice: activeGames[channelId].stockPrice,
-		//           profit: 0,
-		//           numDouble: 2,
-		//           posDouble: 0,
-		//           num_correct: 0,
-		//           num_trades: 1,
-		//         };
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You opened a long position at ${activeGames[channelId].stockPrice}`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else if (activeGames[channelId].players[displayName]?.position) {
-		//         // Player already has a position
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You already have a position open. Please close it before opening a new one.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else {
-		//         activeGames[channelId].players[displayName].position = "long";
-		//         activeGames[channelId].players[displayName].enterPrice =
-		//           activeGames[channelId].stockPrice;
-		//         activeGames[channelId].players[displayName].num_trades += 1;
-		//         // Player has no position
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You opened a long position at ${activeGames[channelId].stockPrice}`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       }
-		//     } else if (componentId.startsWith("sell")) {
-		//       // User clicked "Sell" button
-		//       // Add the user to the game's players if they aren't already in there
-		//       if (!activeGames[channelId].players[displayName]) {
-		//         activeGames[channelId].players[displayName] = {
-		//           // Initialize properties
-		//           position: "short",
-		//           enterPrice: activeGames[channelId].stockPrice,
-		//           profit: 0,
-		//           numDouble: 2,
-		//           posDouble: 0,
-		//           num_correct: 0,
-		//           num_trades: 1,
-		//         };
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You opened a short position at ${activeGames[channelId].stockPrice}`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else if (activeGames[channelId].players[displayName]?.position) {
-		//         // Player already has a position
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You already have a position open. Please close it before opening a new one.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else {
-		//         activeGames[channelId].players[displayName].position = "short";
-		//         activeGames[channelId].players[displayName].enterPrice =
-		//           activeGames[channelId].stockPrice;
-		//         activeGames[channelId].players[displayName].num_trades += 1;
-		//         // Player has no position
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You opened a short position at ${activeGames[channelId].stockPrice}`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       }
-		//     } else if (componentId.startsWith("close")) {
-		//       // User clicked "Close" button
-		//       if (
-		//         !activeGames[channelId].players[displayName] ||
-		//         !activeGames[channelId].players[displayName]?.position
-		//       ) {
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You do not currently have a position. Cannot close.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else {
-		//         const pointValue = activeGames[channelId].pointVal;
-		//         let profitValue = calculateAllProfit(activeGames, channelId, displayName);
-		//         profitValue *= pointValue
-
-		//         const form_profit = profitValue.toFixed(2);
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You closed your position for a profit of ${form_profit}.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       }
-		//     } else if (componentId.startsWith("reverse")) {
-		//       // User clicked "Reverse" button
-		//       // Give error message if they aren't already in the game
-		//       if (!activeGames[channelId].players[displayName]) {
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You do not currently have a position. Cannot reverse.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else if (
-		//         // Plyaer already has a short position
-		//         activeGames[channelId].players[displayName]?.position === "short"
-		//       ) {
-		//         const pointValue = activeGames[channelId].pointVal;
-		//         let profitValue;
-		//         profitValue = calculateAllProfit(activeGames, channelId, displayName);
-
-		//         activeGames[channelId].players[displayName].position = "long";
-		//         activeGames[channelId].players[displayName].enterPrice =
-		//           activeGames[channelId].stockPrice;
-		//         activeGames[channelId].players[displayName].num_trades += 1;
-
-		//         profitValue *= pointValue;
-		//         const form_profit = profitValue.toFixed(2);
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You reversed your short position for a long position. The profit from your previous short position is ${form_profit}.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else if (
-		//         activeGames[channelId].players[displayName]?.position === "long"
-		//       ) {
-		//         const pointValue = activeGames[channelId].pointVal;
-		//         let profitValue;
-		//         profitValue = calculateAllProfit(activeGames, channelId, displayName);
-
-		//         activeGames[channelId].players[displayName].position = "short";
-		//         activeGames[channelId].players[displayName].enterPrice =
-		//           activeGames[channelId].stockPrice;
-		//         activeGames[channelId].players[displayName].num_trades += 1;
-
-		//         profitValue *= pointValue;
-		//         const form_profit = profitValue.toFixed(2);
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You reversed your long position for a short position. The profit from your previous long position is ${form_profit}.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else {
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You do not currently have a position. Cannot reverse.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       }
-		//     } else if (componentId.startsWith("double")) {
-		//       // User clicked "double" button
-		//       // Give error message if they aren't already in the game
-		//       if (!activeGames[channelId].players[displayName] || !activeGames[channelId].players[displayName]?.position) {
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You do not currently have a position. Cannot double.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else if (activeGames[channelId].players[displayName]?.numDouble == 0) {
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You already used your double.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else if (activeGames[channelId].players[displayName]?.posDouble == 1) {
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You are in a double position already.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else {
-		//         // User has a position and double is enabled
-		//         activeGames[channelId].players[displayName].enterPrice =
-		//           (activeGames[channelId].players[displayName].enterPrice+activeGames[channelId].stockPrice)/2;
-		//         activeGames[channelId].players[displayName].numDouble -- ;
-		//         activeGames[channelId].players[displayName].posDouble ++ ;
-
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You have doubled your ${activeGames[channelId].players[displayName]?.position} position at an average price of ${activeGames[channelId].players[displayName]?.enterPrice}.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       }
-		//     } else if (componentId.startsWith("trim")) {
-		//       // User clicked "Trim" button
-		//       if (
-		//         !activeGames[channelId].players[displayName] ||
-		//         !activeGames[channelId].players[displayName]?.position
-		//       ) {
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You do not currently have a position. Cannot trim.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else if (activeGames[channelId].players[displayName]?.posDouble != 1) {
-
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You are not currently in a double position. Cannot trim.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       } else {
-		//         let profitValue;
-		//         profitValue = calculatePartialProfit(activeGames, channelId, displayName)
-		//         profitValue *= activeGames[channelId].pointVal
-
-		//         const form_profit = profitValue.toFixed(2);
-		//         return res.send({
-		//           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-		//           data: {
-		//             content: `You trimed your double position for a profit of ${form_profit}.`,
-		//             flags: InteractionResponseFlags.EPHEMERAL,
-		//           },
-		//         });
-		//       }
-		//     }
 	}
-});
-
-app.listen(PORT, () => {
-	console.log("Listening on port", PORT);
 });

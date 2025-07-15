@@ -2,22 +2,22 @@ import "dotenv/config";
 import fetch from "node-fetch";
 import { verifyKey } from "discord-interactions";
 
-export function VerifyDiscordRequest(clientKey) {
-	return function (req, res, buf, encoding) {
-		const signature = req.get("X-Signature-Ed25519");
-		const timestamp = req.get("X-Signature-Timestamp");
+// export function VerifyDiscordRequest(clientKey) {
+// 	return function (req, res, buf, encoding) {
+// 		const signature = req.get("X-Signature-Ed25519");
+// 		const timestamp = req.get("X-Signature-Timestamp");
 
-		const isValidRequest = verifyKey(buf, signature, timestamp, clientKey);
+// 		const isValidRequest = verifyKey(buf, signature, timestamp, clientKey);
 
-		if (!isValidRequest) {
-			console.error("Invalid request signature");
-			res.status(401).send("Bad request signature");
-			throw new Error("Bad request signature");
-		}
+// 		if (!isValidRequest) {
+// 			console.error("Invalid request signature");
+// 			res.status(401).send("Bad request signature");
+// 			throw new Error("Bad request signature");
+// 		}
 
-		console.log("Request signature verified successfully");
-	};
-}
+// 		console.log("Request signature verified successfully");
+// 	};
+// }
 
 export async function DiscordRequest(endpoint, options) {
 	// append endpoint to root API URL
@@ -44,17 +44,17 @@ export async function DiscordRequest(endpoint, options) {
 	return res;
 }
 
-export async function InstallGlobalCommands(appId, commands) {
-	// API endpoint to overwrite global commands
-	const endpoint = `applications/${appId}/commands`;
+// export async function InstallGlobalCommands(appId, commands) {
+// 	// API endpoint to overwrite global commands
+// 	const endpoint = `applications/${appId}/commands`;
 
-	try {
-		// This is calling the bulk overwrite endpoint: https://discord.com/developers/docs/interactions/application-commands#bulk-overwrite-global-application-commands
-		await DiscordRequest(endpoint, { method: "PUT", body: commands });
-	} catch (err) {
-		console.error(err);
-	}
-}
+// 	try {
+// 		// This is calling the bulk overwrite endpoint: https://discord.com/developers/docs/interactions/application-commands#bulk-overwrite-global-application-commands
+// 		await DiscordRequest(endpoint, { method: "PUT", body: commands });
+// 	} catch (err) {
+// 		console.error(err);
+// 	}
+// }
 
 export function capitalize(str) {
 	return str.charAt(0).toUpperCase() + str.slice(1);
