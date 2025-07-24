@@ -464,56 +464,51 @@ import express from "express";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-async function setMinInstances(serviceName, region, minInstances) {
+async function setMinInstances(projectId, region, serviceName, minInstances) {
 	const auth = new GoogleAuth({
 		scopes: "https://www.googleapis.com/auth/cloud-platform",
 	});
 	const client = await auth.getClient();
-	const projectId = await auth.getProjectId();
 
-	const url = `https://run.googleapis.com/v1/projects/${projectId}/locations/${region}/services/${serviceName}`;
+	const url = `https://run.googleapis.com/v2/projects/${projectId}/locations/${region}/services/${serviceName}?update_mask=scaling.minInstanceCount`;
 	const body = {
-		spec: {
-			template: {
-				metadata: {
-					annotations: {
-						"autoscaling.knative.dev/minScale": String(minInstances),
-					},
-				},
-			},
+		scaling: {
+			minInstanceCount: minInstances,
 		},
 	};
 
-	try {
-		const res = await client.request({
-			url,
-			method: "PATCH",
-			params: { updateMask: "spec.template.metadata.annotations" },
-			data: body,
-		});
-		console.log("PATCH response:", res.data);
-		return res.data;
-	} catch (patchErr) {
-		console.error(
-			"PATCH request failed:",
-			patchErr.response ? patchErr.response.data : patchErr.message
-		);
-		throw new Error("Failed to set min instances. See logs for details.");
-	}
+	const res = await client.request({
+		url,
+		method: "PATCH",
+		data: body,
+		headers: { "Content-Type": "application/json" },
+	});
+
+	return res.data;
 }
 
 app.get("/", async (req, res) => {
-	res.send("Bot is running! Uptime boost triggered for 1 hour.");
+	res.send("Bot is running!");
 
 	const serviceName = "trade-sim-bot";
 	const region = "us-west4";
 
 	// Set min instances to 1
-	await setMinInstances(serviceName, region, 1);
+	await setMinInstances(
+		process.env.GOOGLE_CLOUD_PROJECT_ID,
+		region,
+		serviceName,
+		1
+	);
 
 	// After 1 hour, set min instances back to 0
 	setTimeout(async () => {
-		await setMinInstances(serviceName, region, 0);
+		await setMinInstances(
+			process.env.GOOGLE_CLOUD_PROJECT_ID,
+			region,
+			serviceName,
+			0
+		);
 		console.log("Min instances set back to 0 after 1 hour.");
 	}, 60 * 60 * 1000); // 1 hour in ms
 });
