@@ -484,23 +484,6 @@ async function setMinInstances(serviceName, region, minInstances) {
 		},
 	};
 
-	console.log("PATCH URL:", url);
-
-	// Try a GET request first for debugging
-	try {
-		const getRes = await client.request({ url, method: "GET" });
-		console.log("GET response:", getRes.data);
-	} catch (getErr) {
-		console.error(
-			"GET request failed:",
-			getErr.response ? getErr.response.data : getErr.message
-		);
-		throw new Error(
-			"Cloud Run service not found. Check projectId, serviceName, and region."
-		);
-	}
-
-	// Now try the PATCH request
 	try {
 		const res = await client.request({
 			url,
