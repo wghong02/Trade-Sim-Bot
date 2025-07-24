@@ -484,14 +484,39 @@ async function setMinInstances(serviceName, region, minInstances) {
 		},
 	};
 
-	const res = await client.request({
-		url,
-		method: "PATCH",
-		params: { updateMask: "spec.template.metadata.annotations" },
-		data: body,
-	});
+	console.log("PATCH URL:", url);
 
-	return res.data;
+	// Try a GET request first for debugging
+	try {
+		const getRes = await client.request({ url, method: "GET" });
+		console.log("GET response:", getRes.data);
+	} catch (getErr) {
+		console.error(
+			"GET request failed:",
+			getErr.response ? getErr.response.data : getErr.message
+		);
+		throw new Error(
+			"Cloud Run service not found. Check projectId, serviceName, and region."
+		);
+	}
+
+	// Now try the PATCH request
+	try {
+		const res = await client.request({
+			url,
+			method: "PATCH",
+			params: { updateMask: "spec.template.metadata.annotations" },
+			data: body,
+		});
+		console.log("PATCH response:", res.data);
+		return res.data;
+	} catch (patchErr) {
+		console.error(
+			"PATCH request failed:",
+			patchErr.response ? patchErr.response.data : patchErr.message
+		);
+		throw new Error("Failed to set min instances. See logs for details.");
+	}
 }
 
 app.get("/", async (req, res) => {
