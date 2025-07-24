@@ -24,6 +24,8 @@ import {
 	Events,
 } from "discord.js";
 
+import { google } from "googleapis";
+
 const client = new Client({
 	intents: [
 		GatewayIntentBits.Guilds,
@@ -460,8 +462,47 @@ import express from "express";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get("/", (req, res) => {
-	res.send("Bot is running!");
+async function setMinInstances(serviceName, region, minInstances) {
+	const auth = await google.auth.getClient({
+		scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+	});
+	const run = google.run({
+		version: "v1",
+		auth,
+	});
+	const projectId = await google.auth.getProjectId();
+	const servicePath = `projects/${projectId}/locations/${region}/services/${serviceName}`;
+	await run.projects.locations.services.patch({
+		name: servicePath,
+		updateMask: "spec.template.metadata.annotations",
+		requestBody: {
+			spec: {
+				template: {
+					metadata: {
+						annotations: {
+							"autoscaling.knative.dev/minScale": String(minInstances),
+						},
+					},
+				},
+			},
+		},
+	});
+}
+
+app.get("/", async (req, res) => {
+	res.send("Bot is running! Uptime boost triggered for 1 hour.");
+
+	const serviceName = "trade-sim-bot";
+	const region = "us-west4";
+
+	// Set min instances to 1
+	await setMinInstances(serviceName, region, 1);
+
+	// After 1 hour, set min instances back to 0
+	setTimeout(async () => {
+		await setMinInstances(serviceName, region, 0);
+		console.log("Min instances set back to 0 after 1 hour.");
+	}, 60 * 60 * 1000); // 1 hour in ms
 });
 
 app.listen(PORT, () => {
