@@ -25,6 +25,8 @@ import {
 } from "discord.js";
 
 import { google } from "googleapis";
+import fetch from "node-fetch";
+import { GoogleAuth } from "google-auth-library";
 
 const client = new Client({
 	intents: [
@@ -161,7 +163,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 						],
 					},
 				],
-				ephemeral: true,
+				flags: 64, // 64 = EPHEMERAL
 			});
 			return;
 		}
@@ -175,7 +177,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				await interaction.reply({
 					content:
 						"There is currently no active simulation. Use /sim to start a new simulation.",
-					ephemeral: true,
+					flags: 64,
 				});
 				return;
 			}
@@ -192,14 +194,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				await interaction.reply({
 					content:
 						"There is currently no active simulation. Use /sim to start a new simulation.",
-					ephemeral: true,
+					flags: 64,
 				});
 				return;
 			} else if (activeGames[channelId].ownerId !== userId) {
 				await interaction.reply({
 					content:
 						"Only the user who started the simulation can set the point value.",
-					ephemeral: true,
+					flags: 64,
 				});
 				return;
 			} else {
@@ -207,7 +209,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				if (isNaN(pointValue) || pointValue < 0) {
 					await interaction.reply({
 						content: "Invalid point value. Please enter a valid number.",
-						ephemeral: true,
+						flags: 64,
 					});
 					return;
 				} else {
@@ -215,7 +217,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 					await interaction.reply({
 						content: `1 point is set to be ${pointValue}.
 `,
-						ephemeral: true,
+						flags: 64,
 					});
 					return;
 				}
@@ -226,14 +228,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				await interaction.reply({
 					content:
 						"There is currently no active simulation. Use /sim to start a new simulation.",
-					ephemeral: true,
+					flags: 64,
 				});
 				return;
 			} else if (activeGames[channelId].ownerId !== userId) {
 				await interaction.reply({
 					content:
 						"Only the user who started the simulation can set the number of doubles.",
-					ephemeral: true,
+					flags: 64,
 				});
 				return;
 			} else {
@@ -241,7 +243,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				if (isNaN(numDouble) || numDouble < 0) {
 					await interaction.reply({
 						content: "Invalid value. Please enter a valid number.",
-						ephemeral: true,
+						flags: 64,
 					});
 					return;
 				} else {
@@ -249,7 +251,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 					await interaction.reply({
 						content: `The number of doubles is ${numDouble}.
 `,
-						ephemeral: true,
+						flags: 64,
 					});
 					return;
 				}
@@ -260,14 +262,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				await interaction.reply({
 					content:
 						"There is currently no active simulation. Use /sim to start a new simulation.",
-					ephemeral: true,
+					flags: 64,
 				});
 				return;
 			} else if (activeGames[channelId].ownerId !== userId) {
 				await interaction.reply({
 					content:
 						"Only the user who started the simulation can set the price.",
-					ephemeral: true,
+					flags: 64,
 				});
 				return;
 			} else {
@@ -297,7 +299,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				} else if (isNaN(price) || price < 0) {
 					await interaction.reply({
 						content: "Invalid stock price. Please enter a valid number.",
-						ephemeral: true,
+						flags: 64,
 					});
 					return;
 				} else {
@@ -357,7 +359,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				await interaction.reply({
 					content:
 						"There is currently no active simulation. Use /sim to start a new simulation.",
-					ephemeral: true,
+					flags: 64,
 				});
 				return;
 			} else {
@@ -376,7 +378,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				await interaction.reply({
 					content:
 						"There is currently no active simulation. Use /sim to start a new simulation.",
-					ephemeral: true,
+					flags: 64,
 				});
 				return;
 			} else {
@@ -394,14 +396,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				await interaction.reply({
 					content:
 						"There is currently no active simulation. Use /sim to start a new simulation.",
-					ephemeral: true,
+					flags: 64,
 				});
 				return;
 			} else if (activeGames[channelId].ownerId !== userId) {
 				await interaction.reply({
 					content:
 						"Only the user who started the simulation can set the threshold value.",
-					ephemeral: true,
+					flags: 64,
 				});
 				return;
 			} else {
@@ -409,7 +411,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 				if (isNaN(thresholdValue) || thresholdValue < 0) {
 					await interaction.reply({
 						content: "Invalid threshold value. Please enter a valid number.",
-						ephemeral: true,
+						flags: 64,
 					});
 					return;
 				} else {
@@ -417,7 +419,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 					await interaction.reply({
 						content: `The liquidation threshold is set to be ${thresholdValue}.
 `,
-						ephemeral: true,
+						flags: 64,
 					});
 					return;
 				}
@@ -463,30 +465,33 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 async function setMinInstances(serviceName, region, minInstances) {
-	const auth = await google.auth.getClient({
-		scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+	const auth = new GoogleAuth({
+		scopes: "https://www.googleapis.com/auth/cloud-platform",
 	});
-	const run = google.run({
-		version: "v1",
-		auth,
-	});
-	const projectId = await google.auth.getProjectId();
-	const servicePath = `projects/${projectId}/locations/${region}/services/${serviceName}`;
-	await run.projects.locations.services.patch({
-		name: servicePath,
-		updateMask: "spec.template.metadata.annotations",
-		requestBody: {
-			spec: {
-				template: {
-					metadata: {
-						annotations: {
-							"autoscaling.knative.dev/minScale": String(minInstances),
-						},
+	const client = await auth.getClient();
+	const projectId = await auth.getProjectId();
+
+	const url = `https://run.googleapis.com/v1/projects/${projectId}/locations/${region}/services/${serviceName}`;
+	const body = {
+		spec: {
+			template: {
+				metadata: {
+					annotations: {
+						"autoscaling.knative.dev/minScale": String(minInstances),
 					},
 				},
 			},
 		},
+	};
+
+	const res = await client.request({
+		url,
+		method: "PATCH",
+		params: { updateMask: "spec.template.metadata.annotations" },
+		data: body,
 	});
+
+	return res.data;
 }
 
 app.get("/", async (req, res) => {
