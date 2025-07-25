@@ -146,6 +146,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 	if (interaction.isChatInputCommand()) {
 		const { commandName, options } = interaction;
+		console.log(
+			`[COMMAND] ${commandName} used by ${displayName} in channel ${channelId}`
+		);
 
 		if (commandName === "sim") {
 			await interaction.reply({
@@ -429,6 +432,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 	if (interaction.isButton()) {
 		const componentId = interaction.customId;
+		console.log(
+			`[BUTTON] ${componentId} pressed by ${displayName} in channel ${channelId}`
+		);
 		if (componentId === "start_sim") {
 			const game = {
 				players: {},
@@ -464,53 +470,8 @@ import express from "express";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-async function setMinInstances(projectId, region, serviceName, minInstances) {
-	const auth = new GoogleAuth({
-		scopes: "https://www.googleapis.com/auth/cloud-platform",
-	});
-	const client = await auth.getClient();
-
-	const url = `https://run.googleapis.com/v2/projects/${projectId}/locations/${region}/services/${serviceName}?update_mask=scaling.minInstanceCount`;
-	const body = {
-		scaling: {
-			minInstanceCount: minInstances,
-		},
-	};
-
-	const res = await client.request({
-		url,
-		method: "PATCH",
-		data: body,
-		headers: { "Content-Type": "application/json" },
-	});
-
-	return res.data;
-}
-
-app.get("/", async (req, res) => {
+app.get("/", (req, res) => {
 	res.send("Bot is running!");
-
-	const serviceName = "trade-sim-bot";
-	const region = "us-west4";
-
-	// Set min instances to 1
-	await setMinInstances(
-		process.env.GOOGLE_CLOUD_PROJECT_ID,
-		region,
-		serviceName,
-		1
-	);
-
-	// After 1 hour, set min instances back to 0
-	setTimeout(async () => {
-		await setMinInstances(
-			process.env.GOOGLE_CLOUD_PROJECT_ID,
-			region,
-			serviceName,
-			0
-		);
-		console.log("Min instances set back to 0 after 1 hour.");
-	}, 60 * 60 * 1000); // 1 hour in ms
 });
 
 app.listen(PORT, () => {
